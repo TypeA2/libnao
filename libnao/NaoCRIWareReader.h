@@ -10,6 +10,8 @@
 #include <QDebug>
 
 class LIBNAO_API NaoCRIWareReader : public NaoFileReader {
+    Q_OBJECT
+
     public:
     NaoCRIWareReader(QString infile);
     NaoCRIWareReader(QIODevice* device);
@@ -25,6 +27,23 @@ class LIBNAO_API NaoCRIWareReader : public NaoFileReader {
         qint64 extractedSize;
         quint32 id;
 
+        enum Type {
+            Video = 0,
+            Audio
+        } type;
+
+        qint64 avbps;
+
+        qint64 width;
+        qint64 height;
+        qint64 totalFrames;
+        qint64 nFramerate;
+        qint64 dFramerate;
+
+        qint64 sampleRate;
+        qint64 sampleCount;
+        qint64 channelCount;
+
         QString localDir;
         quint64 updateDateTime;
     };
@@ -33,8 +52,32 @@ class LIBNAO_API NaoCRIWareReader : public NaoFileReader {
     const QVector<EmbeddedFile>& getFiles() const;
 
     QByteArray extractFileAt(qint64 index);
+    bool extractFileTo(qint64 index, QIODevice* device);
+
+    signals:
+    void extractProgress(const qint64 current, const qint64 max);
 
     private:
+    struct Chunk {
+        enum Type{
+            Video = 0,
+            Audio
+        } type;
+
+        enum DataType {
+            Data = 0,
+            StreamInfo,
+            StreamMeta,
+            Header
+        } dataType;
+
+        quint32 size;
+        quint16 headerSize;
+        quint16 footerSize;
+
+        qint64 offset;
+    };
+
     class UTFReader : public NaoFileReader {
         public:
         UTFReader(QByteArray packet);
@@ -96,6 +139,8 @@ class LIBNAO_API NaoCRIWareReader : public NaoFileReader {
     UTFReader* _cpkUTF = nullptr;
 
     QVector<EmbeddedFile> files;
+
+    QVector<Chunk> dataChunks;
 
     void startup();
     QByteArray readNextUTF();

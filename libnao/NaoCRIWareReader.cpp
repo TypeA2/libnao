@@ -1,6 +1,7 @@
 #include "NaoCRIWareReader.h"
 
 #include <QTextCodec>
+#include <windows.h>
 
 NaoCRIWareReader::NaoCRIWareReader(QString infile) : NaoFileReader(infile) {
     startup();
@@ -86,6 +87,95 @@ void NaoCRIWareReader::startup() {
             }
 
             delete filesUTF;
+        }
+    } else {
+        seekRel(8);
+
+        quint16 headerSize = readUShortBE();
+
+        if (headerSize != 0x18) {
+            qFatal("Expected header size of 0x18");
+        }
+
+        qint16 footerSize = readUShortBE();
+
+        if (readUIntBE() != 1) {
+            qFatal("CRID block type should be 1");
+        }
+
+        seekRel(8);
+
+        if (readUIntBE() != 0 || readUIntBE() != 0) {
+            qFatal("Invalid format");
+        }
+
+        UTFReader* info = new UTFReader(readNextUTF());
+
+        qint8 nStreams = info->getRowCount() - 1;
+
+        QMap<quint32, bool> ready;
+
+        for (qint8 i = 1; i <= nStreams; i++) {
+            EmbeddedFile file;
+
+            file.name = info->getFieldData(i, "filename").toString();
+            file.size = info->getFieldData(i, "filesize").toLongLong();
+            file.extractedSize = file.size;
+            file.id = info->getFieldData(i, "stmid").toUInt();
+            file.type = static_cast<EmbeddedFile::Type>(
+                        info->getFieldData(i, "stmid").toUInt() != 0x40534656);
+            file.avbps = info->getFieldData(i, "avbps").toLongLong();
+
+            ready.insert(info->getFieldData(i, "stmid").toUInt(), false);
+
+            files.push_back(file);
+        }
+
+        delete info;
+
+        seekRel(footerSize);
+
+        while (ready.values().contains(false)) {
+            Chunk chunk;
+            chunk.offset = pos();
+
+            QByteArray id = read(4);
+
+            chunk.type = static_cast<Chunk::Type>(id.endsWith('A')); // Booleans map to the enum values
+            chunk.size = readUIntBE();
+            chunk.headerSize = readUShortBE();
+            chunk.footerSize = readUShortBE();
+            chunk.dataType = static_cast<Chunk::DataType>(readUIntBE()); // Also maps to the enum values
+
+            seekRel(16);
+
+            if (chunk.dataType == Chunk::StreamInfo) {
+                UTFReader* info = new UTFReader(readNextUTF());
+
+                EmbeddedFile& file = *std::find_if(files.begin(), files.end(), [&](const EmbeddedFile& f) { return f.id == readUIntBE(id.data()); });
+
+                if (file.type == EmbeddedFile::Video) {
+                    file.width = info->getFieldData(0, "width").toLongLong();
+                    file.height = info->getFieldData(0, "height").toLongLong();
+                    file.totalFrames = info->getFieldData(0, "total_frames").toLongLong();
+                    file.nFramerate = info->getFieldData(0, "framerate_n").toLongLong();
+                    file.dFramerate = info->getFieldData(0, "framerate_d").toLongLong();
+                }
+
+                delete info;
+            } else {
+                if (chunk.size - chunk.headerSize - chunk.footerSize == 0x20) {
+                    if (QString::fromLatin1(read(0x20)) == "#CONTENTS END   ===============" || getDevice()->atEnd()) {
+                        ready[readUIntBE(id.data())] = true;
+                    }
+                } else {
+                    seekRel(chunk.size - chunk.headerSize - chunk.footerSize);
+                }
+            }
+
+            seekRel(chunk.footerSize);
+
+            dataChunks.push_back(chunk);
         }
     }
 }
@@ -358,8 +448,130 @@ bool NaoCRIWareReader::UTFReader::hasField(QString name) const {
 QByteArray NaoCRIWareReader::extractFileAt(qint64 index) {
     EmbeddedFile file = files.at(index);
 
-    seek(file.extraOffset + file.offset);
-    return (file.size == file.extractedSize) ? read(file.size) : decompressCRILAYLA(read(file.size));
+    if (_isPak) {
+        seek(file.extraOffset + file.offset);
+        return (file.size == file.extractedSize) ? read(file.size) : decompressCRILAYLA(read(file.size));
+    } else {
+        QVector<Chunk> chunks;
+
+        for (QVector<Chunk>::iterator it = dataChunks.begin();
+             it != dataChunks.end(); ++it) {
+            Chunk chunk = *it;
+
+            if (chunk.type == static_cast<Chunk::Type>(file.type) && chunk.dataType == Chunk::Data) {
+                chunks.push_back(chunk);
+            }
+        }
+
+        QByteArray output;
+
+        for (QVector<Chunk>::iterator it = chunks.begin();
+             it != chunks.end(); ++it) {
+            Chunk chunk = *it;
+
+            seek(chunk.offset + chunk.headerSize);
+
+            output.append(read(chunk.size - chunk.headerSize - chunk.footerSize));
+        }
+
+        return output;
+    }
+}
+
+bool NaoCRIWareReader::extractFileTo(qint64 index, QIODevice* device) {
+    if (!device->isWritable()) {
+        device->open(QIODevice::WriteOnly);
+
+        if (!device->isWritable()) {
+            return false;
+        }
+    }
+
+    EmbeddedFile file = files.at(index);
+
+    SYSTEM_INFO inf;
+    GetNativeSystemInfo(&inf);
+    const quint32 targetBlockSize = inf.dwPageSize;
+
+    if (_isPak) {
+        seek(file.extraOffset + file.offset);
+
+        if (file.size == file.extractedSize) {
+            qint64 remaining = file.size;
+            qint64 hold = 0;
+
+            while (remaining >= targetBlockSize) {
+                device->write(read(targetBlockSize));
+
+                remaining -= targetBlockSize;
+                hold += targetBlockSize;
+
+                if (hold % (targetBlockSize * 32) == 0) {
+                    emit extractProgress(file.size - remaining, file.size);
+                }
+            }
+
+            if (remaining > 0) {
+                device->write(read(remaining));
+
+                remaining = 0;
+
+                emit extractProgress(file.size, file.size);
+            }
+        } else {
+            device->write(decompressCRILAYLA(read(file.size)));
+        }
+
+        return true;
+    } else {
+        QVector<Chunk> chunks;
+
+        qint64 totalSize = 0;
+
+        for (QVector<Chunk>::iterator it = dataChunks.begin();
+             it != dataChunks.end(); ++it) {
+            Chunk chunk = *it;
+
+            if (chunk.type == static_cast<Chunk::Type>(file.type) && chunk.dataType == Chunk::Data) {
+                chunks.push_back(chunk);
+
+                totalSize += (chunk.size - chunk.headerSize - chunk.footerSize);
+            }
+        }
+
+        qint64 done = 0;
+
+
+        for (QVector<Chunk>::iterator it = chunks.begin();
+             it != chunks.end(); ++it) {
+            Chunk chunk = *it;
+
+            seek(chunk.offset + chunk.headerSize);
+
+            qint64 remaining = chunk.size - chunk.headerSize - chunk.footerSize;
+
+            while (remaining >= targetBlockSize) {
+                device->write(read(targetBlockSize));
+
+                remaining -= targetBlockSize;
+                done += targetBlockSize;
+
+                if (done % (targetBlockSize * 32) == 0) {
+                    emit extractProgress(done, totalSize);
+                }
+            }
+
+            if (remaining > 0) {
+                device->write(read(remaining));
+
+                done += remaining;
+
+                emit extractProgress(done, totalSize);
+            }
+        }
+
+        return true;
+    }
 }
 
 quint16 NaoCRIWareReader::getBits(char* input, quint64* offset, uchar* bitpool, quint8* remaining, quint64 bits) {

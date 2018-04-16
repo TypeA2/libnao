@@ -9,8 +9,9 @@ NaoFileReader::NaoFileReader(QString infile) :
     _NaoFileReaderStartup();
 }
 
-NaoFileReader::NaoFileReader(QIODevice *device) :
-    _infile(device) {
+NaoFileReader::NaoFileReader(QIODevice *device, QString filename) :
+    _infile(device),
+    _filename(filename) {
     if (!_infile->isReadable())
         _infile->open(QIODevice::ReadOnly);
 

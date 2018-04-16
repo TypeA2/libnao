@@ -5,10 +5,12 @@
 
 #include <QFile>
 
-class LIBNAO_API NaoFileReader {
+class LIBNAO_API NaoFileReader : public QObject {
+    Q_OBJECT
+
     public:
     NaoFileReader(QString infile);
-    NaoFileReader(QIODevice* device);
+    NaoFileReader(QIODevice* device, QString filename = QString());
 
     ~NaoFileReader();
 

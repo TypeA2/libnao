@@ -36,7 +36,13 @@ namespace LibNao {
         LIBNAO_API FileType getFileType(QUrl file);
 
         // Readable filesizes
-        LIBNAO_API QString getShortSize(quint64 size);
+        LIBNAO_API QString getShortSize(quint64 size, bool bits = false);
+
+        // Readable time
+        LIBNAO_API QString getShortTime(double time);
+
+        // Sanitize filenames
+        LIBNAO_API QString sanitizeFileName(QString fname);
     }
 
     namespace Steam {
