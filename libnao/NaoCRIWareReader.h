@@ -17,13 +17,13 @@ class LIBNAO_API NaoCRIWareReader : public NaoFileReader {
     NaoCRIWareReader(QIODevice* device);
 
     struct EmbeddedFile {
-        QString origin;
+        QString origin;         // which file table the file was read from
         QString name;
         QString path;
         QString userString;
         qint64 offset;
-        qint64 extraOffset;
-        qint64 size;
+        qint64 extraOffset;     // offset + extraOffset = absolute file offset
+        qint64 size;            // size in the file
         qint64 extractedSize;
         quint32 id;
 
@@ -37,14 +37,14 @@ class LIBNAO_API NaoCRIWareReader : public NaoFileReader {
         qint64 width;
         qint64 height;
         qint64 totalFrames;
-        qint64 nFramerate;
+        qint64 nFramerate;      // nFramerate / dFramerate = fps
         qint64 dFramerate;
 
         qint64 sampleRate;
         qint64 sampleCount;
         qint64 channelCount;
 
-        QString localDir;
+        QString localDir;       // usually same as path
         quint64 updateDateTime;
     };
 
@@ -58,6 +58,8 @@ class LIBNAO_API NaoCRIWareReader : public NaoFileReader {
     void extractProgress(const qint64 current, const qint64 max);
 
     private:
+
+    /* USM chunk containing either video or audio stream data/information */
     struct Chunk {
         enum Type{
             Video = 0,

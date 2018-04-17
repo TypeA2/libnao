@@ -1,5 +1,9 @@
 #include "NaoFileReader.h"
-#include <QDebug>
+
+// I quoteth "REINTERPRET_CAST SHOULD BE USED WITH CAUTION"
+
+// it's safe to assume this code runs on little-endian systems,
+// so we can just reinterpret_cast char pointers as integer pointers of the appropiate type for LE conversions
 
 NaoFileReader::NaoFileReader(QString infile) :
     _filename(infile),
@@ -19,6 +23,8 @@ NaoFileReader::NaoFileReader(QIODevice *device, QString filename) :
 }
 
 void NaoFileReader::_NaoFileReaderStartup() {
+    // read + store fourCC, then seek back to the start
+
     _fourCC = QString::fromLatin1(_infile->read(4).append('\0'));
     seekRel(-4);
 }
@@ -365,6 +371,8 @@ double NaoFileReader::readDoubleBE(uchar b[8]) {
 
 QString NaoFileReader::readString() {
     QByteArray r;
+
+    // read untill we find a null
 
     do {
         r.append(*read(1));

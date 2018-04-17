@@ -18,10 +18,10 @@
 namespace LibNao {
     enum FileType {
         None,
-        CRIWare,
-        WWise,
-        MS_DDS,
-        PG_DAT
+        CRIWare,    // cpk and USM
+        WWise,      // WWRiff and bnk
+        MS_DDS,     // DDS texture
+        PG_DAT      // DAT package
     };
 
     namespace Utils {

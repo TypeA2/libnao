@@ -15,8 +15,8 @@ class LIBNAO_API NaoDATReader : public NaoFileReader {
 
     struct EmbeddedFile {
         QString name;
-        quint32 offset;
-        quint32 size;
+        quint32 offset;     // absolute offset
+        quint32 size;       // embedded size
     };
 
     const QVector<EmbeddedFile>& getFiles() const;

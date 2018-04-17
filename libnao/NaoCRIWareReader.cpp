@@ -16,19 +16,23 @@ void NaoCRIWareReader::startup() {
         qFatal("Invalid CRIWare fourCC found");
     }
 
-
+    // CPK archives start with "CPK ", USM files with CRID
     _isPak = (_fourCC == "CPK ");
 
     if(_isPak) {
-        seekRel(16);
+        seekRel(16); // skip fourCC and information on the @UTF that follows (the chunk itself contains the same data)
 
         _cpkOffset = pos();
         _cpkUTF = new UTFReader(readNextUTF());
 
         if (_cpkUTF->getFieldData(0, "TocOffset").isValid()) {
+
+            // we have a TOC field
+
             quint64 tocOffset = _cpkUTF->getFieldData(0, "TocOffset").toULongLong();
             quint64 offset = 0;
 
+            // clamp to 2048
             if (tocOffset > 0x800U) {
                 tocOffset = 0x800U;
             }
@@ -46,6 +50,8 @@ void NaoCRIWareReader::startup() {
             if (read(4) != QByteArray("TOC ", 4)) {
                 qFatal("Invalid TOC fourCC found");
             }
+
+            // again skip data on the following @UTF
 
             seekRel(12);
 
@@ -70,6 +76,8 @@ void NaoCRIWareReader::startup() {
             delete filesUTF;
         }
 
+        // if we have an Etoc (Itoc and Gtoc omitted)
+
         if (_cpkUTF->getFieldData(0, "EtocOffset").isValid()) {
             seek(_cpkUTF->getFieldData(0, "EtocOffset").toULongLong());
 
@@ -77,9 +85,13 @@ void NaoCRIWareReader::startup() {
                 qFatal("Invalid ETOC fourCC found");
             }
 
+            // again skip data on the following @UTF
+
             seekRel(12);
 
             UTFReader* filesUTF = new UTFReader(readNextUTF());
+
+            // update the possibly cntained values
 
             for (int i = 0; i < files.size(); i++) {
                 files[i].localDir = filesUTF->getFieldData(i, "LocalDir").toString();
@@ -89,6 +101,8 @@ void NaoCRIWareReader::startup() {
             delete filesUTF;
         }
     } else {
+        // skip the foruCC and the following uint blockSize, since we'll be at the end of this block anyway when we finish reading
+
         seekRel(8);
 
         quint16 headerSize = readUShortBE();
@@ -103,6 +117,8 @@ void NaoCRIWareReader::startup() {
             qFatal("CRID block type should be 1");
         }
 
+        // ignore possible sanity check bytes
+
         seekRel(8);
 
         if (readUIntBE() != 0 || readUIntBE() != 0) {
@@ -111,7 +127,11 @@ void NaoCRIWareReader::startup() {
 
         UTFReader* info = new UTFReader(readNextUTF());
 
+        // we have 1 row for each stream, plus one (the first) for the entire file
+
         qint8 nStreams = info->getRowCount() - 1;
+
+        // streams are identified by a BE uint that is equal to either '@SFV' or '@SFA' for video and audio respectively
 
         QMap<quint32, bool> ready;
 
@@ -133,13 +153,17 @@ void NaoCRIWareReader::startup() {
 
         delete info;
 
+        // skip footer
+
         seekRel(footerSize);
+
+        // keep reading as long as not all streams are finished
 
         while (ready.values().contains(false)) {
             Chunk chunk;
             chunk.offset = pos();
 
-            QByteArray id = read(4);
+            QByteArray id = read(4); // @SFV or @SFA
 
             chunk.type = static_cast<Chunk::Type>(id.endsWith('A')); // Booleans map to the enum values
             chunk.size = readUIntBE();
@@ -147,9 +171,14 @@ void NaoCRIWareReader::startup() {
             chunk.footerSize = readUShortBE();
             chunk.dataType = static_cast<Chunk::DataType>(readUIntBE()); // Also maps to the enum values
 
+            // ignore possible sanity check bytes (we're insane)
+
             seekRel(16);
 
             if (chunk.dataType == Chunk::StreamInfo) {
+
+                // contains another @UTF with some info on our stream
+
                 UTFReader* info = new UTFReader(readNextUTF());
 
                 EmbeddedFile& file = *std::find_if(files.begin(), files.end(), [&](const EmbeddedFile& f) { return f.id == readUIntBE(id.data()); });
@@ -164,6 +193,9 @@ void NaoCRIWareReader::startup() {
 
                 delete info;
             } else {
+
+                // as long as this chunk does not specify th end of a stream we just skip the contents and save the positions
+
                 if (chunk.size - chunk.headerSize - chunk.footerSize == 0x20) {
                     if (QString::fromLatin1(read(0x20)) == "#CONTENTS END   ===============" || getDevice()->atEnd()) {
                         ready[readUIntBE(id.data())] = true;
@@ -181,14 +213,14 @@ void NaoCRIWareReader::startup() {
 }
 
 QByteArray NaoCRIWareReader::readNextUTF() {
-    if (QString::fromLatin1(read(4).append('\0')) != "@UTF")
+    if (read(4) != QByteArray("@UTF", 4))
         qFatal("Invalid @UTF fourCC found while reading UTF chunk");
 
-    quint32 packet_size = readUIntBE() + 8;
+    quint32 packetSize = readUIntBE() + 8; // first uint is the remaining packet size
 
     seekRel(-8);
 
-    return read(packet_size);
+    return read(packetSize); // read everything including the fourCC
 }
 
 bool NaoCRIWareReader::isPak() const {
@@ -211,9 +243,9 @@ NaoCRIWareReader::UTFReader::UTFReader(QByteArray packet) :
 
     qint32 tableSize = readUIntBE();
 
-    seekRel(1);
+    seekRel(1); // unused byte
 
-    _encodeType = readUChar();
+    _encodeType = readUChar(); // encoding: Shift-JIS if 0, else UTF-8
     quint16 rowsOffset = readUShortBE() + 8;
     quint32 stringsOffset = readUIntBE() + 8;
     quint32 dataOffset = readUIntBE() + 8;
@@ -233,6 +265,8 @@ NaoCRIWareReader::UTFReader::UTFReader(QByteArray packet) :
         UTFField field;
         field.flags = readChar();
 
+        // sanity check for name (wait we were insane weren't we?!)
+
         if (field.flags & HasName) {
             field.nameOffset = readUIntBE();
 
@@ -241,6 +275,8 @@ NaoCRIWareReader::UTFReader::UTFReader(QByteArray packet) :
             field.name = readString();
             seek(pos);
         }
+
+        // const values if applicable
 
         if (field.flags & ConstVal) {
             switch (field.flags & 0x0F) {
@@ -288,6 +324,9 @@ NaoCRIWareReader::UTFReader::UTFReader(QByteArray packet) :
                     quint32 offset = readUIntBE();
                     qint64 pos = this->pos();
                     seek(stringsOffset + offset);
+
+                    // read in appropiate encoding. Shift-JIS is still null-terminated, only the byte format is weird.
+
                     field.constVal = QVariant::fromValue(
                                 QTextCodec::codecForName(
                                     (_encodeType == 0) ? "Shift-JIS" : "UTF-8")->toUnicode(
@@ -323,12 +362,17 @@ NaoCRIWareReader::UTFReader::UTFReader(QByteArray packet) :
 
             quint32 storageFlag = _fields->at(i).flags & 0xF0;
 
+            // skip if we already have a constant value
+
             if (storageFlag & ConstVal) {
                 row.val = _fields->at(i).constVal;
                 rows->append(row);
 
                 continue;
             } else if (storageFlag & RowVal) {
+
+                // more of a sanity check (oops)
+
                 row.type = _fields->at(i).flags & 0x0F;
                 row.pos = pos();
 
@@ -426,6 +470,9 @@ quint32 NaoCRIWareReader::UTFReader::getRowCount() const {
 }
 
 QVariant NaoCRIWareReader::UTFReader::getFieldData(quint32 row, QString name) const {
+
+    // we could use std::find_if, but then  again, we could also not (number of files shouldn't be too crazy anyway)
+
     for (quint16 i = 0; i < fieldCount; i++) {
         if (_fields->at(i).name == name) {
             return _rows->at(row)->at(i).val;
@@ -446,6 +493,9 @@ bool NaoCRIWareReader::UTFReader::hasField(QString name) const {
 }
 
 QByteArray NaoCRIWareReader::extractFileAt(qint64 index) {
+
+    // in-memory extraction
+
     EmbeddedFile file = files.at(index);
 
     if (_isPak) {
@@ -453,6 +503,8 @@ QByteArray NaoCRIWareReader::extractFileAt(qint64 index) {
         return (file.size == file.extractedSize) ? read(file.size) : decompressCRILAYLA(read(file.size));
     } else {
         QVector<Chunk> chunks;
+
+        // gather all data chunks
 
         for (QVector<Chunk>::iterator it = dataChunks.begin();
              it != dataChunks.end(); ++it) {
@@ -464,6 +516,8 @@ QByteArray NaoCRIWareReader::extractFileAt(qint64 index) {
         }
 
         QByteArray output;
+
+        // read all data those chunks point to
 
         for (QVector<Chunk>::iterator it = chunks.begin();
              it != chunks.end(); ++it) {
@@ -479,6 +533,9 @@ QByteArray NaoCRIWareReader::extractFileAt(qint64 index) {
 }
 
 bool NaoCRIWareReader::extractFileTo(qint64 index, QIODevice* device) {
+
+    // extract to a QIODevice in chunks equal to the page size of the filesystem (if the QIODevice is in memory, well tough)
+
     if (!device->isWritable()) {
         device->open(QIODevice::WriteOnly);
 
@@ -489,6 +546,8 @@ bool NaoCRIWareReader::extractFileTo(qint64 index, QIODevice* device) {
 
     EmbeddedFile file = files.at(index);
 
+    // get the page size from Windows
+
     SYSTEM_INFO inf;
     GetNativeSystemInfo(&inf);
     const quint32 targetBlockSize = inf.dwPageSize;
@@ -496,9 +555,13 @@ bool NaoCRIWareReader::extractFileTo(qint64 index, QIODevice* device) {
     if (_isPak) {
         seek(file.extraOffset + file.offset);
 
+        // if the file is compressed we have no choice but to still completely load it into memory. This is fine because compressed files usually have limited size.
+
         if (file.size == file.extractedSize) {
             qint64 remaining = file.size;
             qint64 hold = 0;
+
+            // read targetBlockSize bytes as long as we can
 
             while (remaining >= targetBlockSize) {
                 device->write(read(targetBlockSize));
@@ -506,10 +569,14 @@ bool NaoCRIWareReader::extractFileTo(qint64 index, QIODevice* device) {
                 remaining -= targetBlockSize;
                 hold += targetBlockSize;
 
+                // prevents spamming signals/slots
+
                 if (hold % (targetBlockSize * 32) == 0) {
                     emit extractProgress(file.size - remaining, file.size);
                 }
             }
+
+            // read remaining bytes
 
             if (remaining > 0) {
                 device->write(read(remaining));
@@ -528,6 +595,8 @@ bool NaoCRIWareReader::extractFileTo(qint64 index, QIODevice* device) {
 
         qint64 totalSize = 0;
 
+        // gather data chunks
+
         for (QVector<Chunk>::iterator it = dataChunks.begin();
              it != dataChunks.end(); ++it) {
             Chunk chunk = *it;
@@ -541,6 +610,7 @@ bool NaoCRIWareReader::extractFileTo(qint64 index, QIODevice* device) {
 
         qint64 done = 0;
 
+        // read data chunks in blocks agains
 
         for (QVector<Chunk>::iterator it = chunks.begin();
              it != chunks.end(); ++it) {
@@ -575,6 +645,10 @@ bool NaoCRIWareReader::extractFileTo(qint64 index, QIODevice* device) {
 }
 
 quint16 NaoCRIWareReader::getBits(char* input, quint64* offset, uchar* bitpool, quint8* remaining, quint64 bits) {
+
+    // WARNING: DIRTY C CODE IN C++
+    // Reads bits from input, storing bits in bitpool (etc)
+
     quint16 output = 0;
     quint64 outbits = 0;
     quint64 bitsNow = 0;
@@ -605,6 +679,9 @@ quint16 NaoCRIWareReader::getBits(char* input, quint64* offset, uchar* bitpool, 
 }
 
 QByteArray NaoCRIWareReader::decompressCRILAYLA(QByteArray file) {
+    // ALSO WARNING: ALSO (albeit less so) DIRTY C CODE IN CPP
+    // decompress CRILAYLA (couldn't they just use gzip or something?)
+
     quint64 size = file.size();
     char* data = file.data();
 

@@ -20,10 +20,14 @@ void NaoDATReader::startup() {
         qFatal("Invalid DAT fourCC found");
     }
 
+    // skip fourCC
+
     seekRel(4);
 
     quint32 fileCount = readUIntLE();
     quint32 filesOffset = readUIntLE();
+
+    // skip extension table offset (extension are included in the name, I'm not sure either why they are also stored seperately)
 
     seekRel(4);
 
@@ -32,9 +36,15 @@ void NaoDATReader::startup() {
 
     seek(namesOffset);
 
+    // names table is prepended with an uint that specifies the alignment of the names
+    // names are padded with null, so converting them to a string is easy
+
     quint32 namesAlignment = readUIntLE();
 
     files.resize(fileCount);
+
+    // read everything as sequentially as possible (to be nice to the filesystem)
+    // first the names
 
     for (quint32 i = 0; i < fileCount; ++i) {
         files[i].name = QString(read(namesAlignment));
@@ -42,11 +52,15 @@ void NaoDATReader::startup() {
 
     seek(filesOffset);
 
+    // offsets
+
     for (quint32 i = 0; i < fileCount; ++i) {
         files[i].offset = readUIntLE();
     }
 
     seek(sizesOffset);
+
+    // sizes
 
     for (quint32 i = 0; i < fileCount; ++i) {
         files[i].size = readUIntLE();
@@ -54,6 +68,8 @@ void NaoDATReader::startup() {
 }
 
 bool NaoDATReader::extractFileTo(qint64 index, QIODevice *device) {
+    // extract to a QIODevice
+
     if (!device->isWritable()) {
         device->open(QIODevice::WriteOnly);
 
@@ -63,6 +79,8 @@ bool NaoDATReader::extractFileTo(qint64 index, QIODevice *device) {
     }
 
     EmbeddedFile file = files.at(index);
+
+    // get the size of the blocks in which we'll be extracting
 
     SYSTEM_INFO inf;
     GetNativeSystemInfo(&inf);
@@ -75,6 +93,8 @@ bool NaoDATReader::extractFileTo(qint64 index, QIODevice *device) {
 
     emit setExtractMaximum(remaining);
 
+    // read targetBlockSize bytes untill we can read no more
+
     while (remaining >= targetBlockSize) {
         device->write(read(targetBlockSize));
 
@@ -85,6 +105,8 @@ bool NaoDATReader::extractFileTo(qint64 index, QIODevice *device) {
             emit extractProgress(done);
         }
     }
+
+    // read the remaining
 
     if (remaining > 0) {
         device->write(read(remaining));

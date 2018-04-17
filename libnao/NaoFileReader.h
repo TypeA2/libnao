@@ -16,11 +16,11 @@ class LIBNAO_API NaoFileReader : public QObject {
 
     QString getFileName() const;
     QIODevice* getDevice() const;
-    QString fourCC() const;
+    QString fourCC() const;     // first 4 bytes as a string
     qint64 pos() const;
 
     QByteArray read(qint64 n);
-    bool seekRel(qint64 p);
+    bool seekRel(qint64 p);         // seek relative to the current position
     bool seek(qint64 p);
     quint8 readUChar();
     qint8 readChar();

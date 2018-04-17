@@ -9,6 +9,8 @@
 
 namespace LibNao {
     namespace Utils {
+
+        // Just all file extension we have a class for
         QStringList getSupportedExtensions() {
             return QStringList({
                                    "cpk",
@@ -59,6 +61,9 @@ namespace LibNao {
         }
 
         QString getShortSize(quint64 size, bool bits) {
+
+            // bitshift by n * 10 to divide by 1024^n, then divide by 1024. to get a float value with 3 decimals.
+
             if (size > 0x1000000000000000) {
                 return QString("%0 Ei%1").arg((size >> 50) / 1024., 0, 'f', 3)
                         .arg(bits ? "bit" : "B");
@@ -107,6 +112,8 @@ namespace LibNao {
         }
 
         QString sanitizeFileName(QString fname) {
+            // because Platinum Games thinks : is valid for filenames
+
             const QString illegalChars = R"(\\/:?"<>|)";
 
             for (QString::iterator it = fname.begin();
@@ -122,17 +129,25 @@ namespace LibNao {
 
     namespace Steam {
         QString getSteamPath() {
+
+            // Just read directly from the Windows registry
+
             return QSettings("HKEY_CURRENT_USER\\Software\\Valve\\Steam",
                              QSettings::NativeFormat).value("SteamPath").toString();
         }
 
         QStringList getSteamInstallFolders() {
+            // <steampath>/SteamApps/libraryfolders.vdf contains all our install folders
+
             std::ifstream libfolders((getSteamPath() + "/SteamApps/libraryfolders.vdf").toLatin1().constData());
             tyti::vdf::object root = tyti::vdf::read(libfolders);
 
             QStringList retlist = QStringList(getSteamPath());
 
             for (size_t i = 1; i <= root.attribs.size() - 2; i++) {
+
+                // replace some slashes to make it readable
+
                 retlist.append(
                             std::regex_replace(
                                 root.attribs.at(std::to_string(i)),
@@ -146,6 +161,9 @@ namespace LibNao {
         }
 
         QString getGamePath(QString game, QString def) {
+
+            // Search all install folders for a given game, return def if not found
+
             for (QString folder : getSteamInstallFolders()) {
                 QStringList entries = QDir(folder + "/SteamApps/common").entryList(QStringList(game), QDir::Dirs);
 
