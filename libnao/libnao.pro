@@ -25,14 +25,16 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
         libnao.cpp \
     NaoCRIWareReader.cpp \
-    NaoFileReader.cpp
+    NaoFileReader.cpp \
+    NaoDATReader.cpp
 
 HEADERS += \
         libnao.h \
         libnao_global.h \
         vdf_parser.hpp \
     NaoCRIWareReader.h \
-    NaoFileReader.h
+    NaoFileReader.h \
+    NaoDATReader.h
 
 unix {
     target.path = /usr/lib

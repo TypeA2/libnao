@@ -20,7 +20,8 @@ namespace LibNao {
         None,
         CRIWare,
         WWise,
-        MS_DDS
+        MS_DDS,
+        PG_DAT
     };
 
     namespace Utils {

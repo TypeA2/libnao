@@ -12,7 +12,9 @@ namespace LibNao {
         QStringList getSupportedExtensions() {
             return QStringList({
                                    "cpk",
-                                   "usm"
+                                   "usm",
+                                   "dat",
+                                   "dtt"
                                });
         }
 
@@ -44,6 +46,8 @@ namespace LibNao {
                     return WWise;
                 } else if (memcmp(fourcc, "DDS ", 4) == 0) {
                     return MS_DDS;
+                } else if (memcmp(fourcc, "DAT", 4) == 0) {
+                    return PG_DAT; // null-terminated string "DAT"
                 }
             }
 
