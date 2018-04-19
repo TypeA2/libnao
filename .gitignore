@@ -6,3 +6,6 @@ libnao-*
 
 # Temporary files
 *.autosave
+
+/lib
+/SlimShader

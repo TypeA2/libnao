@@ -9,8 +9,6 @@
 #include <utility>
 #include <type_traits>
 
-#include <QDebug>
-
 #include <QSettings>
 #include <QDir>
 #include <QUrl>

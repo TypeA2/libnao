@@ -7,7 +7,6 @@
 #include <QBuffer>
 #include <QVector>
 #include <QVariant>
-#include <QDebug>
 
 class LIBNAO_API NaoCRIWareReader : public NaoFileReader {
     Q_OBJECT

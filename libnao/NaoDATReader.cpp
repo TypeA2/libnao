@@ -1,7 +1,6 @@
 #include "NaoDATReader.h"
 
 #include <windows.h>
-#include <QDebug>
 
 NaoDATReader::NaoDATReader(QString infile):
     NaoFileReader(infile),

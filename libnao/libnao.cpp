@@ -10,13 +10,14 @@
 namespace LibNao {
     namespace Utils {
 
-        // Just all file extension we have a class for
+        // Just all file extension we have a class (or other support) for
         QStringList getSupportedExtensions() {
             return QStringList({
                                    "cpk",
                                    "usm",
                                    "dat",
-                                   "dtt"
+                                   "dtt",
+                                   "wtp"
                                });
         }
 
